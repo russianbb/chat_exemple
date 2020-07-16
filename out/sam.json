@@ -1,0 +1,466 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Outputs": {
+    "WebsocketAPIId": {
+      "Value": {
+        "Ref": "WebsocketAPI"
+      }
+    },
+    "WebsocketConnectHandlerArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebsocketConnect",
+          "Arn"
+        ]
+      }
+    },
+    "WebsocketConnectHandlerName": {
+      "Value": {
+        "Ref": "WebsocketConnect"
+      }
+    },
+    "WebsocketMessageHandlerArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebsocketMessage",
+          "Arn"
+        ]
+      }
+    },
+    "WebsocketMessageHandlerName": {
+      "Value": {
+        "Ref": "WebsocketMessage"
+      }
+    },
+    "WebsocketDisconnectHandlerArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebsocketDisconnect",
+          "Arn"
+        ]
+      }
+    },
+    "WebsocketDisconnectHandlerName": {
+      "Value": {
+        "Ref": "WebsocketDisconnect"
+      }
+    },
+    "WebsocketConnectEndpointURL": {
+      "Value": {
+        "Fn::Sub": "wss://${WebsocketAPI}.execute-api.${AWS::Region}.amazonaws.com/api/"
+      }
+    }
+  },
+  "Resources": {
+    "DefaultRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "DefaultRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "arn:aws:logs:*:*:*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "execute-api:ManageConnections"
+                  ],
+                  "Resource": "arn:aws:execute-api:*:*:*/@connections/*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:DeleteItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChaliceChatTable}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChaliceChatTable}/index/ReverseLookup"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "WebsocketConnect": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "Runtime": "python3.6",
+        "Handler": "app.connect",
+        "CodeUri": "./deployment.zip",
+        "Tags": {
+          "aws-chalice": "version=1.15.1:stage=dev:app=chalice-chat-exemple"
+        },
+        "Timeout": 60,
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "DefaultRole",
+            "Arn"
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE": {
+              "Ref": "ChaliceChatTable"
+            }
+          }
+        }
+      }
+    },
+    "WebsocketMessage": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "Runtime": "python3.6",
+        "Handler": "app.message",
+        "CodeUri": "./deployment.zip",
+        "Tags": {
+          "aws-chalice": "version=1.15.1:stage=dev:app=chalice-chat-exemple"
+        },
+        "Timeout": 60,
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "DefaultRole",
+            "Arn"
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE": {
+              "Ref": "ChaliceChatTable"
+            }
+          }
+        }
+      }
+    },
+    "WebsocketDisconnect": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "Runtime": "python3.6",
+        "Handler": "app.disconnect",
+        "CodeUri": "./deployment.zip",
+        "Tags": {
+          "aws-chalice": "version=1.15.1:stage=dev:app=chalice-chat-exemple"
+        },
+        "Timeout": 60,
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "DefaultRole",
+            "Arn"
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE": {
+              "Ref": "ChaliceChatTable"
+            }
+          }
+        }
+      }
+    },
+    "WebsocketAPI": {
+      "Type": "AWS::ApiGatewayV2::Api",
+      "Properties": {
+        "Name": "chalice-chat-exemple-dev-websocket-api",
+        "RouteSelectionExpression": "$request.body.action",
+        "ProtocolType": "WEBSOCKET"
+      }
+    },
+    "WebsocketConnectAPIIntegration": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "ConnectionType": "INTERNET",
+        "ContentHandlingStrategy": "CONVERT_TO_TEXT",
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::Sub": [
+            "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${WebsocketHandler}/invocations",
+            {
+              "WebsocketHandler": {
+                "Ref": "WebsocketConnect"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketConnectInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "WebsocketConnect"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsocketAPIId}/*",
+            {
+              "WebsocketAPIId": {
+                "Ref": "WebsocketAPI"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketMessageAPIIntegration": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "ConnectionType": "INTERNET",
+        "ContentHandlingStrategy": "CONVERT_TO_TEXT",
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::Sub": [
+            "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${WebsocketHandler}/invocations",
+            {
+              "WebsocketHandler": {
+                "Ref": "WebsocketMessage"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketMessageInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "WebsocketMessage"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsocketAPIId}/*",
+            {
+              "WebsocketAPIId": {
+                "Ref": "WebsocketAPI"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketDisconnectAPIIntegration": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "ConnectionType": "INTERNET",
+        "ContentHandlingStrategy": "CONVERT_TO_TEXT",
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::Sub": [
+            "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${WebsocketHandler}/invocations",
+            {
+              "WebsocketHandler": {
+                "Ref": "WebsocketDisconnect"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketDisconnectInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "WebsocketDisconnect"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsocketAPIId}/*",
+            {
+              "WebsocketAPIId": {
+                "Ref": "WebsocketAPI"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebsocketConnectRoute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "RouteKey": "$connect",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "WebsocketConnectAPIIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "WebsocketDisconnectRoute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "RouteKey": "$disconnect",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "WebsocketDisconnectAPIIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "WebsocketMessageRoute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "RouteKey": "$default",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "WebsocketMessageAPIIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "WebsocketAPIDeployment": {
+      "Type": "AWS::ApiGatewayV2::Deployment",
+      "DependsOn": [
+        "WebsocketConnectRoute",
+        "WebsocketDisconnectRoute",
+        "WebsocketMessageRoute"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        }
+      }
+    },
+    "WebsocketAPIStage": {
+      "Type": "AWS::ApiGatewayV2::Stage",
+      "Properties": {
+        "ApiId": {
+          "Ref": "WebsocketAPI"
+        },
+        "DeploymentId": {
+          "Ref": "WebsocketAPIDeployment"
+        },
+        "StageName": "api"
+      }
+    },
+    "ChaliceChatTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "SK",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "PK",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "SK",
+            "KeyType": "RANGE"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "ReverseLookup",
+            "KeySchema": [
+              {
+                "AttributeName": "SK",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "PK",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 1,
+              "WriteCapacityUnits": 1
+            }
+          }
+        ],
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 1,
+          "WriteCapacityUnits": 1
+        },
+        "TableName": "ChaliceChat"
+      }
+    }
+  }
+}
