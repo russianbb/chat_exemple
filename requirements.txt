@@ -17,5 +17,5 @@ rsa==4.5
 s3transfer==0.3.3
 six==1.15.0
 typing==3.6.4
-urllib3==1.25.9
+urllib3==1.26.5
 websocket-client==0.57.0
